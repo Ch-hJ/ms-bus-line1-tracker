@@ -8,7 +8,7 @@
         body { font-family: Arial, sans-serif; max-width: 400px; margin: 50px auto; padding: 20px; border: 1px solid #ccc; border-radius: 8px; }
         label { display: block; margin-top: 10px; font-weight: bold; }
         input, select { width: 100%; padding: 8px; margin-top: 5px; box-sizing: border-box; }
-        button { width: 100%; padding: 10px; background-color: #007bff; color: white; border: none; margin-top: 15px; border-radius: 4px; cursor: pointer; }
+        button { width: 100%; padding: 10px; background-color: #007bff; color: white; border: none; margin-top: 15px; border-radius: 4px; cursor: pointer; font-size: 15px; font-weight: bold; }
         button:hover { background-color: #0056b3; }
         .result-box { margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 4px; display: none; }
         .delay-text { color: #dc3545; font-weight: bold; }
@@ -76,31 +76,32 @@ async function loadStops() {
         const response = await fetch(`${WORKER_URL}?action=get_stops`);
         const stops = await response.json();
         
-        if (!Array.isArray(stops)) return;
+        if (!Array.isArray(stops) || stops.length === 0) {
+            stopSelect.innerHTML = '<option value="">No stops available</option>';
+            return;
+        }
+
         stopSelect.innerHTML = ''; 
 
-        const parsedStops = stops.map(item => {
-            const valA = item.stop_name || Object.values(item)[0] || "";
-            const valB = item.stop_id || Object.values(item)[1] || "";
-            if (/^\d+$/.test(valA.toString().trim())) {
-                return { name: valB.toString().trim(), id: valA.toString().trim() };
-            }
-            return { name: valA.toString().trim(), id: valB.toString().trim() };
-        });
+        // Sort alphabetically by German stop name
+        stops.sort((a, b) => (a.stop_name || "").localeCompare(b.stop_name || "", 'de'));
 
-        parsedStops.sort((a, b) => a.name.localeCompare(b.name, 'de'));
+        stops.forEach(stop => {
+            const stopName = (stop.stop_name || "").toString().trim();
+            const stopId = (stop.stop_id || "").toString().trim();
 
-        parsedStops.forEach(stop => {
-            if (stop.name && stop.id) {
-                stopIdMap[stop.id] = stop.name;
+            if (stopName && stopId) {
+                stopIdMap[stopId] = stopName;
+
                 const opt = document.createElement('option');
-                opt.value = stop.id;        
-                opt.textContent = stop.name; 
+                opt.value = stopId;         
+                opt.textContent = stopName; 
                 stopSelect.appendChild(opt);
             }
         });
     } catch (err) {
         console.error("Error loading stops:", err);
+        stopSelect.innerHTML = '<option value="">Error loading stops</option>';
     }
 }
 
@@ -129,6 +130,9 @@ async function getBusPrediction() {
     });
 
     try {
+        submitBtn.disabled = true;
+        submitBtn.innerText = "Checking...";
+
         const response = await fetch(`${WORKER_URL}?${queryParams.toString()}`);
         const data = await response.json();
 
@@ -137,17 +141,16 @@ async function getBusPrediction() {
             return;
         }
 
-        // 1. Core visual population
         const scheduledTime = data.scheduled_time || "N/A";
         resScheduled.innerText = scheduledTime;
 
         const delayMinutes = data.delay_minutes ?? 0;
         resDelay.innerText = delayMinutes;
 
-        // 2. Math string calculation: G-Sheet timetable + Estimated Delay
         const calculatedPrediction = addMinutesToTime(scheduledTime, delayMinutes);
         resPredicted.innerText = calculatedPrediction || scheduledTime;
         
+        // Convert any remaining numeric stop IDs to readable names
         let locationDescription = data.current_bus_location || "";
         if (locationDescription) {
             locationDescription = locationDescription.replace(/\d+/g, (id) => stopIdMap[id] || id);
@@ -165,6 +168,9 @@ async function getBusPrediction() {
     } catch (error) {
         console.error("Error:", error);
         alert("Failed to connect to the backend framework.");
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerText = "Check Next Bus";
     }
 }
 
