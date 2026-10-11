@@ -18,7 +18,7 @@
 <body>
 
     <h2>🚌 Bus Live Tracker</h2>
-    
+
     <label for="stopSelect">Bus Stop Name:</label>
     <select id="stopSelect">
         <option value="">Loading stops from Google Sheet...</option>
@@ -46,10 +46,9 @@
         <p><strong>Predicted Next Bus:</strong> <span id="resPredicted" style="color: green; font-weight: bold;"></span></p>
         <p id="liveStatus" class="status-msg"></p>
     </div>
-    
+
 <script>
 const WORKER_URL = "https://backend-api.echoechung.workers.dev/";
-const stopIdMap = {};
 
 // DOM Cache
 const stopSelect = document.getElementById('stopSelect');
@@ -71,31 +70,36 @@ function addMinutesToTime(timeStr, minutesToAdd) {
     return date.toTimeString().substring(0, 5);
 }
 
+// Preselect the day type from today's weekday in Berlin
+function setDefaultDayType() {
+    const day = new Intl.DateTimeFormat('en-US', { timeZone: 'Europe/Berlin', weekday: 'short' }).format(new Date());
+    if (day === 'Sat') dayTypeSelect.value = 'Saturday';
+    else if (day === 'Sun') dayTypeSelect.value = 'Sunday';
+    else dayTypeSelect.value = 'Monday_Friday';
+}
+
 async function loadStops() {
     try {
         const response = await fetch(`${WORKER_URL}?action=get_stops`);
         const stops = await response.json();
-        
+
         if (!Array.isArray(stops)) return;
-        stopSelect.innerHTML = ''; 
+        stopSelect.innerHTML = '';
 
         const parsedStops = stops.map(item => {
-            const valA = item.stop_name || Object.values(item)[0] || "";
-            const valB = item.stop_id || Object.values(item)[1] || "";
-            if (/^\d+$/.test(valA.toString().trim())) {
-                return { name: valB.toString().trim(), id: valA.toString().trim() };
-            }
-            return { name: valA.toString().trim(), id: valB.toString().trim() };
+            const valA = (item.stop_name || "").toString().trim();
+            const valB = (item.stop_id || "").toString().trim();
+            if (/^\d+$/.test(valA)) return { name: valB, id: valA };
+            return { name: valA, id: valB };
         });
 
         parsedStops.sort((a, b) => a.name.localeCompare(b.name, 'de'));
 
         parsedStops.forEach(stop => {
             if (stop.name && stop.id) {
-                stopIdMap[stop.id] = stop.name;
                 const opt = document.createElement('option');
-                opt.value = stop.id;        
-                opt.textContent = stop.name; 
+                opt.value = stop.id;
+                opt.textContent = stop.name;
                 stopSelect.appendChild(opt);
             }
         });
@@ -111,9 +115,9 @@ async function getBusPrediction() {
     }
 
     const passengerStopId = stopSelect.value;
-    const selectedStopName = stopSelect.options[stopSelect.selectedIndex].text; 
+    const selectedStopName = stopSelect.options[stopSelect.selectedIndex].text;
     const direction = directionSelect.value;
-    const selectedDayType = dayTypeSelect.value; 
+    const selectedDayType = dayTypeSelect.value;
 
     const options = { timeZone: 'Europe/Berlin', hour: '2-digit', minute: '2-digit', hour12: false };
     const currentTimeStr = new Intl.DateTimeFormat('de-DE', options).format(new Date());
@@ -137,24 +141,17 @@ async function getBusPrediction() {
             return;
         }
 
-        // 1. Core visual population
         const scheduledTime = data.scheduled_time || "N/A";
         resScheduled.innerText = scheduledTime;
 
-        const delayMinutes = data.delay_minutes ?? 0;
-        resDelay.innerText = delayMinutes;
+        const delayMinutes = Number(data.delay_minutes ?? 0);
+        resDelay.innerText = Math.round(delayMinutes * 10) / 10;
 
-        // 2. Math string calculation: G-Sheet timetable + Estimated Delay
         const calculatedPrediction = addMinutesToTime(scheduledTime, delayMinutes);
         resPredicted.innerText = calculatedPrediction || scheduledTime;
-        
-        let locationDescription = data.current_bus_location || "";
-        if (locationDescription) {
-            locationDescription = locationDescription.replace(/\d+/g, (id) => stopIdMap[id] || id);
-        }
 
         if (data.bus_found) {
-            liveStatus.innerText = `⚡ Live bus tracked! Current Status: "${locationDescription}".`;
+            liveStatus.innerText = `⚡ Live bus tracked! Current position: ${data.current_bus_location}`;
             liveStatus.style.color = "#28a745";
         } else {
             liveStatus.innerText = "ℹ️ No live bus currently approaching this stop. Displaying scheduled defaults.";
@@ -168,7 +165,10 @@ async function getBusPrediction() {
     }
 }
 
-window.addEventListener('DOMContentLoaded', loadStops);
+window.addEventListener('DOMContentLoaded', () => {
+    setDefaultDayType();
+    loadStops();
+});
 submitBtn.addEventListener('click', getBusPrediction);
 </script>
 </body>
